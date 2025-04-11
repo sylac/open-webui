@@ -432,19 +432,27 @@ async def get_tool_server_data(token: str, url: str) -> Dict[str, Any]:
     try:
         timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status != 200:
-                    error_body = await response.json()
-                    raise Exception(error_body)
+            try:
+                async with session.get(url, headers=headers) as response:
+                    if response.status != 200:
+                        error_body = await response.text()
+                        log.error(f"Could not fetch tool server spec from {url} - HTTP {response.status}")
+                        raise Exception(f"Server returned status {response.status}: {error_body}")
 
-                # Check if URL ends with .yaml or .yml to determine format
-                if url.lower().endswith((".yaml", ".yml")):
-                    text_content = await response.text()
-                    res = yaml.safe_load(text_content)
-                else:
-                    res = await response.json()
+                    # Check if URL ends with .yaml or .yml to determine format
+                    if url.lower().endswith((".yaml", ".yml")):
+                        text_content = await response.text()
+                        res = yaml.safe_load(text_content)
+                    else:
+                        res = await response.json()
+            except aiohttp.ClientConnectorError as e:
+                log.error(f"Could not fetch tool server spec from {url} - Connection refused")
+                raise Exception(f"Connection refused to {url}")
+            except asyncio.TimeoutError:
+                log.error(f"Could not fetch tool server spec from {url} - Connection timeout")
+                raise Exception(f"Connection timeout to {url}")
     except Exception as err:
-        log.exception(f"Could not fetch tool server spec from {url}")
+        log.exception(f"Could not fetch tool server spec from {url} - {getattr(err, 'message', str(err))}")
         if isinstance(err, dict) and "detail" in err:
             error = err["detail"]
         else:
@@ -480,28 +488,32 @@ async def get_tool_servers_data(
                 token = session_token
             server_entries.append((idx, server, full_url, token))
 
+    # If no enabled servers found, return empty list
+    if not server_entries:
+        return []
+
     # Create async tasks to fetch data
-    tasks = [get_tool_server_data(token, url) for (_, _, url, token) in server_entries]
+    tasks = []
+    for idx, server, url, token in server_entries:
+        task = asyncio.create_task(get_tool_server_data(token, url))
+        tasks.append((idx, server, url, token, task))
 
-    # Execute tasks concurrently
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Build final results with index and server metadata
+    # Build results with index and server metadata
     results = []
-    for (idx, server, url, _), response in zip(server_entries, responses):
-        if isinstance(response, Exception):
-            print(f"Failed to connect to {url} OpenAPI tool server")
-            continue
-
-        results.append(
-            {
+    for idx, server, url, _, task in tasks:
+        try:
+            response = await task
+            results.append({
                 "idx": idx,
                 "url": server.get("url"),
                 "openapi": response.get("openapi"),
                 "info": response.get("info"),
                 "specs": response.get("specs"),
-            }
-        )
+            })
+        except Exception as e:
+            # Just log a simple error message without the full stack trace
+            log.warning(f"Failed to connect to {url} OpenAPI tool server: {str(e)}")
+            continue
 
     return results
 
