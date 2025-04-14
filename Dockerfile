@@ -173,6 +173,4 @@ ARG BUILD_HASH
 ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
 ENV DOCKER=true
 
-ENTRYPOINT [ "/bin/sh", "-c" ]
-CMD ["tail -f /dev/null"]
-#CMD [ "bash", "start.sh"]
+CMD [ "bash", "start.sh"]
