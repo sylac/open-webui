@@ -17,6 +17,7 @@ from sqlalchemy import text
 from typing import Optional
 from aiocache import cached
 import aiohttp
+import anyio.to_thread
 import requests
 
 
@@ -100,11 +101,14 @@ from open_webui.config import (
     # OpenAI
     ENABLE_OPENAI_API,
     ONEDRIVE_CLIENT_ID,
+    ONEDRIVE_SHAREPOINT_URL,
     OPENAI_API_BASE_URLS,
     OPENAI_API_KEYS,
     OPENAI_API_CONFIGS,
     # Direct Connections
     ENABLE_DIRECT_CONNECTIONS,
+    # Thread pool size for FastAPI/AnyIO
+    THREAD_POOL_SIZE,
     # Tool Server Configs
     TOOL_SERVER_CONNECTIONS,
     # Code Execution
@@ -160,12 +164,13 @@ from open_webui.config import (
     AUDIO_TTS_VOICE,
     AUDIO_TTS_AZURE_SPEECH_REGION,
     AUDIO_TTS_AZURE_SPEECH_OUTPUT_FORMAT,
-    PLAYWRIGHT_WS_URI,
+    PLAYWRIGHT_WS_URL,
     PLAYWRIGHT_TIMEOUT,
     FIRECRAWL_API_BASE_URL,
     FIRECRAWL_API_KEY,
-    RAG_WEB_LOADER_ENGINE,
+    WEB_LOADER_ENGINE,
     WHISPER_MODEL,
+    WHISPER_VAD_FILTER,
     DEEPGRAM_API_KEY,
     WHISPER_MODEL_AUTO_UPDATE,
     WHISPER_MODEL_DIR,
@@ -205,12 +210,13 @@ from open_webui.config import (
     YOUTUBE_LOADER_LANGUAGE,
     YOUTUBE_LOADER_PROXY_URL,
     # Retrieval (Web Search)
-    RAG_WEB_SEARCH_ENGINE,
+    ENABLE_WEB_SEARCH,
+    WEB_SEARCH_ENGINE,
     BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL,
-    RAG_WEB_SEARCH_RESULT_COUNT,
-    RAG_WEB_SEARCH_CONCURRENT_REQUESTS,
-    RAG_WEB_SEARCH_TRUST_ENV,
-    RAG_WEB_SEARCH_DOMAIN_FILTER_LIST,
+    WEB_SEARCH_RESULT_COUNT,
+    WEB_SEARCH_CONCURRENT_REQUESTS,
+    WEB_SEARCH_TRUST_ENV,
+    WEB_SEARCH_DOMAIN_FILTER_LIST,
     JINA_API_KEY,
     SEARCHAPI_API_KEY,
     SEARCHAPI_ENGINE,
@@ -238,13 +244,17 @@ from open_webui.config import (
     GOOGLE_DRIVE_CLIENT_ID,
     GOOGLE_DRIVE_API_KEY,
     ONEDRIVE_CLIENT_ID,
+    ONEDRIVE_SHAREPOINT_URL,
     ENABLE_RAG_HYBRID_SEARCH,
     ENABLE_RAG_LOCAL_WEB_FETCH,
-    ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION,
-    ENABLE_RAG_WEB_SEARCH,
+    ENABLE_WEB_LOADER_SSL_VERIFICATION,
     ENABLE_GOOGLE_DRIVE_INTEGRATION,
     ENABLE_ONEDRIVE_INTEGRATION,
     UPLOAD_DIR,
+    EXTERNAL_WEB_SEARCH_URL,
+    EXTERNAL_WEB_SEARCH_API_KEY,
+    EXTERNAL_WEB_LOADER_URL,
+    EXTERNAL_WEB_LOADER_API_KEY,
     # WebUI
     WEBUI_AUTH,
     WEBUI_NAME,
@@ -340,6 +350,7 @@ from open_webui.env import (
     WEBUI_SESSION_COOKIE_SECURE,
     WEBUI_AUTH_TRUSTED_EMAIL_HEADER,
     WEBUI_AUTH_TRUSTED_NAME_HEADER,
+    WEBUI_AUTH_SIGNOUT_REDIRECT_URL,
     ENABLE_WEBSOCKET_SUPPORT,
     BYPASS_MODEL_ACCESS_CONTROL,
     RESET_CONFIG_ON_START,
@@ -372,7 +383,11 @@ from open_webui.utils.auth import (
 from open_webui.utils.oauth import OAuthManager
 from open_webui.utils.security_headers import SecurityHeadersMiddleware
 
-from open_webui.tasks import stop_task, list_tasks  # Import from tasks.py
+from open_webui.tasks import (
+    list_task_ids_by_chat_id,
+    stop_task,
+    list_tasks,
+)  # Import from tasks.py
 
 from open_webui.utils.redis import get_sentinels_from_env
 
@@ -426,6 +441,11 @@ async def lifespan(app: FastAPI):
 
     if LICENSE_KEY:
         get_license_data(app, LICENSE_KEY)
+
+    pool_size = THREAD_POOL_SIZE
+    if pool_size and pool_size > 0:
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        limiter.total_tokens = pool_size
 
     asyncio.create_task(periodic_usage_pool_cleanup())
     yield
@@ -571,6 +591,7 @@ app.state.config.LDAP_CIPHERS = LDAP_CIPHERS
 
 app.state.AUTH_TRUSTED_EMAIL_HEADER = WEBUI_AUTH_TRUSTED_EMAIL_HEADER
 app.state.AUTH_TRUSTED_NAME_HEADER = WEBUI_AUTH_TRUSTED_NAME_HEADER
+app.state.WEBUI_AUTH_SIGNOUT_REDIRECT_URL = WEBUI_AUTH_SIGNOUT_REDIRECT_URL
 app.state.EXTERNAL_PWA_MANIFEST_URL = EXTERNAL_PWA_MANIFEST_URL
 
 app.state.USER_COUNT = None
@@ -594,9 +615,7 @@ app.state.config.FILE_MAX_COUNT = RAG_FILE_MAX_COUNT
 app.state.config.RAG_FULL_CONTEXT = RAG_FULL_CONTEXT
 app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL = BYPASS_EMBEDDING_AND_RETRIEVAL
 app.state.config.ENABLE_RAG_HYBRID_SEARCH = ENABLE_RAG_HYBRID_SEARCH
-app.state.config.ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION = (
-    ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION
-)
+app.state.config.ENABLE_WEB_LOADER_SSL_VERIFICATION = ENABLE_WEB_LOADER_SSL_VERIFICATION
 
 app.state.config.CONTENT_EXTRACTION_ENGINE = CONTENT_EXTRACTION_ENGINE
 app.state.config.TIKA_SERVER_URL = TIKA_SERVER_URL
@@ -629,12 +648,16 @@ app.state.config.YOUTUBE_LOADER_LANGUAGE = YOUTUBE_LOADER_LANGUAGE
 app.state.config.YOUTUBE_LOADER_PROXY_URL = YOUTUBE_LOADER_PROXY_URL
 
 
-app.state.config.ENABLE_RAG_WEB_SEARCH = ENABLE_RAG_WEB_SEARCH
-app.state.config.RAG_WEB_SEARCH_ENGINE = RAG_WEB_SEARCH_ENGINE
+app.state.config.ENABLE_WEB_SEARCH = ENABLE_WEB_SEARCH
+app.state.config.WEB_SEARCH_ENGINE = WEB_SEARCH_ENGINE
+app.state.config.WEB_SEARCH_DOMAIN_FILTER_LIST = WEB_SEARCH_DOMAIN_FILTER_LIST
+app.state.config.WEB_SEARCH_RESULT_COUNT = WEB_SEARCH_RESULT_COUNT
+app.state.config.WEB_SEARCH_CONCURRENT_REQUESTS = WEB_SEARCH_CONCURRENT_REQUESTS
+app.state.config.WEB_LOADER_ENGINE = WEB_LOADER_ENGINE
+app.state.config.WEB_SEARCH_TRUST_ENV = WEB_SEARCH_TRUST_ENV
 app.state.config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL = (
     BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL
 )
-app.state.config.RAG_WEB_SEARCH_DOMAIN_FILTER_LIST = RAG_WEB_SEARCH_DOMAIN_FILTER_LIST
 
 app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION = ENABLE_GOOGLE_DRIVE_INTEGRATION
 app.state.config.ENABLE_ONEDRIVE_INTEGRATION = ENABLE_ONEDRIVE_INTEGRATION
@@ -661,12 +684,13 @@ app.state.config.EXA_API_KEY = EXA_API_KEY
 app.state.config.PERPLEXITY_API_KEY = PERPLEXITY_API_KEY
 app.state.config.SOUGOU_API_SID = SOUGOU_API_SID
 app.state.config.SOUGOU_API_SK = SOUGOU_API_SK
+app.state.config.EXTERNAL_WEB_SEARCH_URL = EXTERNAL_WEB_SEARCH_URL
+app.state.config.EXTERNAL_WEB_SEARCH_API_KEY = EXTERNAL_WEB_SEARCH_API_KEY
+app.state.config.EXTERNAL_WEB_LOADER_URL = EXTERNAL_WEB_LOADER_URL
+app.state.config.EXTERNAL_WEB_LOADER_API_KEY = EXTERNAL_WEB_LOADER_API_KEY
 
-app.state.config.RAG_WEB_SEARCH_RESULT_COUNT = RAG_WEB_SEARCH_RESULT_COUNT
-app.state.config.RAG_WEB_SEARCH_CONCURRENT_REQUESTS = RAG_WEB_SEARCH_CONCURRENT_REQUESTS
-app.state.config.RAG_WEB_LOADER_ENGINE = RAG_WEB_LOADER_ENGINE
-app.state.config.RAG_WEB_SEARCH_TRUST_ENV = RAG_WEB_SEARCH_TRUST_ENV
-app.state.config.PLAYWRIGHT_WS_URI = PLAYWRIGHT_WS_URI
+
+app.state.config.PLAYWRIGHT_WS_URL = PLAYWRIGHT_WS_URL
 app.state.config.PLAYWRIGHT_TIMEOUT = PLAYWRIGHT_TIMEOUT
 app.state.config.FIRECRAWL_API_BASE_URL = FIRECRAWL_API_BASE_URL
 app.state.config.FIRECRAWL_API_KEY = FIRECRAWL_API_KEY
@@ -786,6 +810,7 @@ app.state.config.STT_ENGINE = AUDIO_STT_ENGINE
 app.state.config.STT_MODEL = AUDIO_STT_MODEL
 
 app.state.config.WHISPER_MODEL = WHISPER_MODEL
+app.state.config.WHISPER_VAD_FILTER = WHISPER_VAD_FILTER
 app.state.config.DEEPGRAM_API_KEY = DEEPGRAM_API_KEY
 
 app.state.config.AUDIO_STT_AZURE_API_KEY = AUDIO_STT_AZURE_API_KEY
@@ -1020,14 +1045,19 @@ async def get_models(request: Request, user=Depends(get_verified_user)):
         if "pipeline" in model and model["pipeline"].get("type", None) == "filter":
             continue
 
-        model_tags = [
-            tag.get("name")
-            for tag in model.get("info", {}).get("meta", {}).get("tags", [])
-        ]
-        tags = [tag.get("name") for tag in model.get("tags", [])]
+        try:
+            model_tags = [
+                tag.get("name")
+                for tag in model.get("info", {}).get("meta", {}).get("tags", [])
+            ]
+            tags = [tag.get("name") for tag in model.get("tags", [])]
 
-        tags = list(set(model_tags + tags))
-        model["tags"] = [{"name": tag} for tag in tags]
+            tags = list(set(model_tags + tags))
+            model["tags"] = [{"name": tag} for tag in tags]
+        except Exception as e:
+            log.debug(f"Error processing model tags: {e}")
+            model["tags"] = []
+            pass
 
         models.append(model)
 
@@ -1197,7 +1227,7 @@ async def chat_action(
 @app.post("/api/tasks/stop/{task_id}")
 async def stop_task_endpoint(task_id: str, user=Depends(get_verified_user)):
     try:
-        result = await stop_task(task_id)  # Use the function from tasks.py
+        result = await stop_task(task_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -1205,7 +1235,19 @@ async def stop_task_endpoint(task_id: str, user=Depends(get_verified_user)):
 
 @app.get("/api/tasks")
 async def list_tasks_endpoint(user=Depends(get_verified_user)):
-    return {"tasks": list_tasks()}  # Use the function from tasks.py
+    return {"tasks": list_tasks()}
+
+
+@app.get("/api/tasks/chat/{chat_id}")
+async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified_user)):
+    chat = Chats.get_chat_by_id(chat_id)
+    if chat is None or chat.user_id != user.id:
+        return {"task_ids": []}
+
+    task_ids = list_task_ids_by_chat_id(chat_id)
+
+    print(f"Task IDs for chat {chat_id}: {task_ids}")
+    return {"task_ids": task_ids}
 
 
 ##################################
@@ -1261,7 +1303,7 @@ async def get_app_config(request: Request):
                 {
                     "enable_direct_connections": app.state.config.ENABLE_DIRECT_CONNECTIONS,
                     "enable_channels": app.state.config.ENABLE_CHANNELS,
-                    "enable_web_search": app.state.config.ENABLE_RAG_WEB_SEARCH,
+                    "enable_web_search": app.state.config.ENABLE_WEB_SEARCH,
                     "enable_code_execution": app.state.config.ENABLE_CODE_EXECUTION,
                     "enable_code_interpreter": app.state.config.ENABLE_CODE_INTERPRETER,
                     "enable_image_generation": app.state.config.ENABLE_IMAGE_GENERATION,
@@ -1305,7 +1347,10 @@ async def get_app_config(request: Request):
                     "client_id": GOOGLE_DRIVE_CLIENT_ID.value,
                     "api_key": GOOGLE_DRIVE_API_KEY.value,
                 },
-                "onedrive": {"client_id": ONEDRIVE_CLIENT_ID.value},
+                "onedrive": {
+                    "client_id": ONEDRIVE_CLIENT_ID.value,
+                    "sharepoint_url": ONEDRIVE_SHAREPOINT_URL.value,
+                },
                 "license_metadata": app.state.LICENSE_METADATA,
                 **(
                     {
@@ -1417,7 +1462,7 @@ async def get_manifest_json():
             "start_url": "/",
             "display": "standalone",
             "background_color": "#343541",
-            "orientation": "natural",
+            "orientation": "any",
             "icons": [
                 {
                     "src": "/static/logo.png",

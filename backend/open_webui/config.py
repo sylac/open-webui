@@ -201,7 +201,10 @@ def save_config(config):
 
 T = TypeVar("T")
 
-ENABLE_PERSISTENT_CONFIG = os.environ.get("ENABLE_PERSISTENT_CONFIG", "True").lower() == "true"
+ENABLE_PERSISTENT_CONFIG = (
+    os.environ.get("ENABLE_PERSISTENT_CONFIG", "True").lower() == "true"
+)
+
 
 class PersistentConfig(Generic[T]):
     def __init__(self, env_name: str, config_path: str, env_value: T):
@@ -506,6 +509,12 @@ ENABLE_OAUTH_GROUP_MANAGEMENT = PersistentConfig(
     os.environ.get("ENABLE_OAUTH_GROUP_MANAGEMENT", "False").lower() == "true",
 )
 
+ENABLE_OAUTH_GROUP_CREATION = PersistentConfig(
+    "ENABLE_OAUTH_GROUP_CREATION",
+    "oauth.enable_group_creation",
+    os.environ.get("ENABLE_OAUTH_GROUP_CREATION", "False").lower() == "true",
+)
+
 OAUTH_ROLES_CLAIM = PersistentConfig(
     "OAUTH_ROLES_CLAIM",
     "oauth.roles_claim",
@@ -612,10 +621,16 @@ def load_oauth_providers():
                 "scope": OAUTH_SCOPES.value,
             }
 
-            if OAUTH_CODE_CHALLENGE_METHOD.value and OAUTH_CODE_CHALLENGE_METHOD.value == "S256":
+            if (
+                OAUTH_CODE_CHALLENGE_METHOD.value
+                and OAUTH_CODE_CHALLENGE_METHOD.value == "S256"
+            ):
                 client_kwargs["code_challenge_method"] = "S256"
             elif OAUTH_CODE_CHALLENGE_METHOD.value:
-                raise Exception('Code challenge methods other than "%s" not supported. Given: "%s"' % ("S256", OAUTH_CODE_CHALLENGE_METHOD.value))
+                raise Exception(
+                    'Code challenge methods other than "%s" not supported. Given: "%s"'
+                    % ("S256", OAUTH_CODE_CHALLENGE_METHOD.value)
+                )
 
             client.register(
                 name="oidc",
@@ -1053,6 +1068,22 @@ USER_PERMISSIONS_CHAT_EDIT = (
     os.environ.get("USER_PERMISSIONS_CHAT_EDIT", "True").lower() == "true"
 )
 
+USER_PERMISSIONS_CHAT_STT = (
+    os.environ.get("USER_PERMISSIONS_CHAT_STT", "True").lower() == "true"
+)
+
+USER_PERMISSIONS_CHAT_TTS = (
+    os.environ.get("USER_PERMISSIONS_CHAT_TTS", "True").lower() == "true"
+)
+
+USER_PERMISSIONS_CHAT_CALL = (
+    os.environ.get("USER_PERMISSIONS_CHAT_CALL", "True").lower() == "true"
+)
+
+USER_PERMISSIONS_CHAT_MULTIPLE_MODELS = (
+    os.environ.get("USER_PERMISSIONS_CHAT_MULTIPLE_MODELS", "True").lower() == "true"
+)
+
 USER_PERMISSIONS_CHAT_TEMPORARY = (
     os.environ.get("USER_PERMISSIONS_CHAT_TEMPORARY", "True").lower() == "true"
 )
@@ -1061,6 +1092,7 @@ USER_PERMISSIONS_CHAT_TEMPORARY_ENFORCED = (
     os.environ.get("USER_PERMISSIONS_CHAT_TEMPORARY_ENFORCED", "False").lower()
     == "true"
 )
+
 
 USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS = (
     os.environ.get("USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS", "False").lower()
@@ -1100,6 +1132,10 @@ DEFAULT_USER_PERMISSIONS = {
         "file_upload": USER_PERMISSIONS_CHAT_FILE_UPLOAD,
         "delete": USER_PERMISSIONS_CHAT_DELETE,
         "edit": USER_PERMISSIONS_CHAT_EDIT,
+        "stt": USER_PERMISSIONS_CHAT_STT,
+        "tts": USER_PERMISSIONS_CHAT_TTS,
+        "call": USER_PERMISSIONS_CHAT_CALL,
+        "multiple_models": USER_PERMISSIONS_CHAT_MULTIPLE_MODELS,
         "temporary": USER_PERMISSIONS_CHAT_TEMPORARY,
         "temporary_enforced": USER_PERMISSIONS_CHAT_TEMPORARY_ENFORCED,
     },
@@ -1172,6 +1208,9 @@ ENABLE_USER_WEBHOOKS = PersistentConfig(
     "ui.enable_user_webhooks",
     os.environ.get("ENABLE_USER_WEBHOOKS", "True").lower() == "true",
 )
+
+# FastAPI / AnyIO settings
+THREAD_POOL_SIZE = int(os.getenv("THREAD_POOL_SIZE", "0"))
 
 
 def validate_cors_origins(origins):
@@ -1663,6 +1702,9 @@ MILVUS_TOKEN = os.environ.get("MILVUS_TOKEN", None)
 # Qdrant
 QDRANT_URI = os.environ.get("QDRANT_URI", None)
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", None)
+QDRANT_ON_DISK = os.environ.get("QDRANT_ON_DISK", "false").lower() == "true"
+QDRANT_PREFER_GRPC = os.environ.get("QDRANT_PREFER_GRPC", "False").lower() == "true"
+QDRANT_GRPC_PORT = int(os.environ.get("QDRANT_GRPC_PORT", "6334"))
 
 # OpenSearch
 OPENSEARCH_URI = os.environ.get("OPENSEARCH_URI", "https://localhost:9200")
@@ -1729,6 +1771,13 @@ ONEDRIVE_CLIENT_ID = PersistentConfig(
     "onedrive.client_id",
     os.environ.get("ONEDRIVE_CLIENT_ID", ""),
 )
+
+ONEDRIVE_SHAREPOINT_URL = PersistentConfig(
+    "ONEDRIVE_SHAREPOINT_URL",
+    "onedrive.sharepoint_url",
+    os.environ.get("ONEDRIVE_SHAREPOINT_URL", ""),
+)
+
 
 # RAG Content Extraction
 CONTENT_EXTRACTION_ENGINE = PersistentConfig(
@@ -1818,12 +1867,6 @@ RAG_FILE_MAX_SIZE = PersistentConfig(
         if os.environ.get("RAG_FILE_MAX_SIZE")
         else None
     ),
-)
-
-ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION = PersistentConfig(
-    "ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION",
-    "rag.enable_web_loader_ssl_verification",
-    os.environ.get("ENABLE_RAG_WEB_LOADER_SSL_VERIFICATION", "True").lower() == "true",
 )
 
 RAG_EMBEDDING_ENGINE = PersistentConfig(
@@ -1990,16 +2033,20 @@ YOUTUBE_LOADER_PROXY_URL = PersistentConfig(
 )
 
 
-ENABLE_RAG_WEB_SEARCH = PersistentConfig(
-    "ENABLE_RAG_WEB_SEARCH",
+####################################
+# Web Search (RAG)
+####################################
+
+ENABLE_WEB_SEARCH = PersistentConfig(
+    "ENABLE_WEB_SEARCH",
     "rag.web.search.enable",
-    os.getenv("ENABLE_RAG_WEB_SEARCH", "False").lower() == "true",
+    os.getenv("ENABLE_WEB_SEARCH", "False").lower() == "true",
 )
 
-RAG_WEB_SEARCH_ENGINE = PersistentConfig(
-    "RAG_WEB_SEARCH_ENGINE",
+WEB_SEARCH_ENGINE = PersistentConfig(
+    "WEB_SEARCH_ENGINE",
     "rag.web.search.engine",
-    os.getenv("RAG_WEB_SEARCH_ENGINE", ""),
+    os.getenv("WEB_SEARCH_ENGINE", ""),
 )
 
 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL = PersistentConfig(
@@ -2008,16 +2055,48 @@ BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL = PersistentConfig(
     os.getenv("BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL", "False").lower() == "true",
 )
 
+
+WEB_SEARCH_RESULT_COUNT = PersistentConfig(
+    "WEB_SEARCH_RESULT_COUNT",
+    "rag.web.search.result_count",
+    int(os.getenv("WEB_SEARCH_RESULT_COUNT", "3")),
+)
+
+
 # You can provide a list of your own websites to filter after performing a web search.
 # This ensures the highest level of safety and reliability of the information sources.
-RAG_WEB_SEARCH_DOMAIN_FILTER_LIST = PersistentConfig(
-    "RAG_WEB_SEARCH_DOMAIN_FILTER_LIST",
+WEB_SEARCH_DOMAIN_FILTER_LIST = PersistentConfig(
+    "WEB_SEARCH_DOMAIN_FILTER_LIST",
     "rag.web.search.domain.filter_list",
     [
         # "wikipedia.com",
         # "wikimedia.org",
         # "wikidata.org",
     ],
+)
+
+WEB_SEARCH_CONCURRENT_REQUESTS = PersistentConfig(
+    "WEB_SEARCH_CONCURRENT_REQUESTS",
+    "rag.web.search.concurrent_requests",
+    int(os.getenv("WEB_SEARCH_CONCURRENT_REQUESTS", "10")),
+)
+
+WEB_LOADER_ENGINE = PersistentConfig(
+    "WEB_LOADER_ENGINE",
+    "rag.web.loader.engine",
+    os.environ.get("WEB_LOADER_ENGINE", ""),
+)
+
+ENABLE_WEB_LOADER_SSL_VERIFICATION = PersistentConfig(
+    "ENABLE_WEB_LOADER_SSL_VERIFICATION",
+    "rag.web.loader.ssl_verification",
+    os.environ.get("ENABLE_WEB_LOADER_SSL_VERIFICATION", "True").lower() == "true",
+)
+
+WEB_SEARCH_TRUST_ENV = PersistentConfig(
+    "WEB_SEARCH_TRUST_ENV",
+    "rag.web.search.trust_env",
+    os.getenv("WEB_SEARCH_TRUST_ENV", "False").lower() == "true",
 )
 
 
@@ -2085,18 +2164,6 @@ SERPLY_API_KEY = PersistentConfig(
     "SERPLY_API_KEY",
     "rag.web.search.serply_api_key",
     os.getenv("SERPLY_API_KEY", ""),
-)
-
-TAVILY_API_KEY = PersistentConfig(
-    "TAVILY_API_KEY",
-    "rag.web.search.tavily_api_key",
-    os.getenv("TAVILY_API_KEY", ""),
-)
-
-TAVILY_EXTRACT_DEPTH = PersistentConfig(
-    "TAVILY_EXTRACT_DEPTH",
-    "rag.web.search.tavily_extract_depth",
-    os.getenv("TAVILY_EXTRACT_DEPTH", "basic"),
 )
 
 JINA_API_KEY = PersistentConfig(
@@ -2167,52 +2234,64 @@ SOUGOU_API_SK = PersistentConfig(
     os.getenv("SOUGOU_API_SK", ""),
 )
 
-RAG_WEB_SEARCH_RESULT_COUNT = PersistentConfig(
-    "RAG_WEB_SEARCH_RESULT_COUNT",
-    "rag.web.search.result_count",
-    int(os.getenv("RAG_WEB_SEARCH_RESULT_COUNT", "3")),
+TAVILY_API_KEY = PersistentConfig(
+    "TAVILY_API_KEY",
+    "rag.web.search.tavily_api_key",
+    os.getenv("TAVILY_API_KEY", ""),
 )
 
-RAG_WEB_SEARCH_CONCURRENT_REQUESTS = PersistentConfig(
-    "RAG_WEB_SEARCH_CONCURRENT_REQUESTS",
-    "rag.web.search.concurrent_requests",
-    int(os.getenv("RAG_WEB_SEARCH_CONCURRENT_REQUESTS", "10")),
+TAVILY_EXTRACT_DEPTH = PersistentConfig(
+    "TAVILY_EXTRACT_DEPTH",
+    "rag.web.search.tavily_extract_depth",
+    os.getenv("TAVILY_EXTRACT_DEPTH", "basic"),
 )
 
-RAG_WEB_LOADER_ENGINE = PersistentConfig(
-    "RAG_WEB_LOADER_ENGINE",
-    "rag.web.loader.engine",
-    os.environ.get("RAG_WEB_LOADER_ENGINE", "safe_web"),
-)
-
-RAG_WEB_SEARCH_TRUST_ENV = PersistentConfig(
-    "RAG_WEB_SEARCH_TRUST_ENV",
-    "rag.web.search.trust_env",
-    os.getenv("RAG_WEB_SEARCH_TRUST_ENV", "False").lower() == "true",
-)
-
-PLAYWRIGHT_WS_URI = PersistentConfig(
-    "PLAYWRIGHT_WS_URI",
-    "rag.web.loader.engine.playwright.ws.uri",
-    os.environ.get("PLAYWRIGHT_WS_URI", None),
+PLAYWRIGHT_WS_URL = PersistentConfig(
+    "PLAYWRIGHT_WS_URL",
+    "rag.web.loader.playwright_ws_url",
+    os.environ.get("PLAYWRIGHT_WS_URL", ""),
 )
 
 PLAYWRIGHT_TIMEOUT = PersistentConfig(
     "PLAYWRIGHT_TIMEOUT",
-    "rag.web.loader.engine.playwright.timeout",
-    int(os.environ.get("PLAYWRIGHT_TIMEOUT", "10")),
+    "rag.web.loader.playwright_timeout",
+    int(os.environ.get("PLAYWRIGHT_TIMEOUT", "10000")),
 )
 
 FIRECRAWL_API_KEY = PersistentConfig(
     "FIRECRAWL_API_KEY",
-    "firecrawl.api_key",
+    "rag.web.loader.firecrawl_api_key",
     os.environ.get("FIRECRAWL_API_KEY", ""),
 )
 
 FIRECRAWL_API_BASE_URL = PersistentConfig(
     "FIRECRAWL_API_BASE_URL",
-    "firecrawl.api_url",
+    "rag.web.loader.firecrawl_api_url",
     os.environ.get("FIRECRAWL_API_BASE_URL", "https://api.firecrawl.dev"),
+)
+
+EXTERNAL_WEB_SEARCH_URL = PersistentConfig(
+    "EXTERNAL_WEB_SEARCH_URL",
+    "rag.web.search.external_web_search_url",
+    os.environ.get("EXTERNAL_WEB_SEARCH_URL", ""),
+)
+
+EXTERNAL_WEB_SEARCH_API_KEY = PersistentConfig(
+    "EXTERNAL_WEB_SEARCH_API_KEY",
+    "rag.web.search.external_web_search_api_key",
+    os.environ.get("EXTERNAL_WEB_SEARCH_API_KEY", ""),
+)
+
+EXTERNAL_WEB_LOADER_URL = PersistentConfig(
+    "EXTERNAL_WEB_LOADER_URL",
+    "rag.web.loader.external_web_loader_url",
+    os.environ.get("EXTERNAL_WEB_LOADER_URL", ""),
+)
+
+EXTERNAL_WEB_LOADER_API_KEY = PersistentConfig(
+    "EXTERNAL_WEB_LOADER_API_KEY",
+    "rag.web.loader.external_web_loader_api_key",
+    os.environ.get("EXTERNAL_WEB_LOADER_API_KEY", ""),
 )
 
 ####################################
@@ -2467,12 +2546,20 @@ WHISPER_MODEL_AUTO_UPDATE = (
     and os.environ.get("WHISPER_MODEL_AUTO_UPDATE", "").lower() == "true"
 )
 
+WHISPER_VAD_FILTER = PersistentConfig(
+    "WHISPER_VAD_FILTER",
+    "audio.stt.whisper_vad_filter",
+    os.getenv("WHISPER_VAD_FILTER", "False").lower() == "true",
+)
+
+
 # Add Deepgram configuration
 DEEPGRAM_API_KEY = PersistentConfig(
     "DEEPGRAM_API_KEY",
     "audio.stt.deepgram.api_key",
     os.getenv("DEEPGRAM_API_KEY", ""),
 )
+
 
 AUDIO_STT_OPENAI_API_BASE_URL = PersistentConfig(
     "AUDIO_STT_OPENAI_API_BASE_URL",
